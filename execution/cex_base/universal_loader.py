@@ -126,6 +126,8 @@ class UniversalCEXDataLoader:
             robust_norm(log_vol)
         ], dim=1)
         
+        logger.info(self.feat_tensor)
+
         return self.feat_tensor
 
     async def close(self):

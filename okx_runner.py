@@ -20,9 +20,9 @@ class OKXConfiguredRunner:
     def __init__(self):
         # ─── 配置 ───
         self.EXCHANGE_ID = os.getenv("EXCHANGE_ID", 'okx')
-        self.MARKET_TYPE = os.getenv("MARKET_TYPE", 'spot')
+        self.MARKET_TYPE = os.getenv("MARKET_TYPE", 'swap')
         self.MONITOR_SYMBOLS = [
-            'ETH/USDT', 'SOL/USDT', 'DOGE/USDT'
+            'ETH/USDT:USDT', 'SOL/USDT:USDT', 'DOGE/USDT:USDT'
         ]
         self.stop_signal_path = os.getenv("STOP_SIGNAL_PATH", f"STOP_SIGNAL_{self.EXCHANGE_ID.upper()}")
         # ──────────────────
