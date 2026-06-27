@@ -56,3 +56,7 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# strategy
+best_meme_strategy.json
+portfolio_state.json
