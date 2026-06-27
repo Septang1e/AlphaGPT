@@ -153,8 +153,7 @@ class UniversalCEXTrader:
             logger.info(f"[{self.exchange_id}] 执行市价卖出/平多: {formatted_symbol} | 卖出数量: {sell_qty_formatted} ({percentage*100}%)")
             
             order = await self.exchange.create_market_order(
-                symbol=formatted_symbol, 
-                type='market', 
+                symbol=formatted_symbol,  
                 side='sell', 
                 amount=sell_qty_formatted, 
                 params=params
