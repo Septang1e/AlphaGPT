@@ -14,7 +14,7 @@ async def run_okx_training_pipeline(limit=50, export_csv_path="okx_processed_tra
     okx = OKXProvider()
     db = DBManager()
     
-    # 1. 初始化并连接数据库
+    # # 1. 初始化并连接数据库
     await db.connect()
     await db.init_schema()  # 确保表结构和 TimescaleDB 超表已创建
 
@@ -50,6 +50,7 @@ async def run_okx_training_pipeline(limit=50, export_csv_path="okx_processed_tra
             
             if history_tuples:
                 # 直接调用 batch_insert_ohlcv 即可，底层使用了 asyncpg 的 copy_records_to_table，性能极高
+                logger.info(history_tuples)
                 await db.batch_insert_ohlcv(history_tuples)
                 logger.success(f"[存储层] 成功为 {address} 写入 {len(history_tuples)} 条 K 线数据")
             
@@ -63,7 +64,6 @@ async def run_okx_training_pipeline(limit=50, export_csv_path="okx_processed_tra
             query = """
                 SELECT time, address, open, high, low, close, volume, liquidity, fdv, source 
                 FROM ohlcv 
-                WHERE source = 'okx' 
                 ORDER BY address ASC, time ASC
             """
             records = await conn.fetch(query)
@@ -85,8 +85,5 @@ async def run_okx_training_pipeline(limit=50, export_csv_path="okx_processed_tra
         await okx.close()
 
 if __name__ == "__main__":
-    import os
-    os.environ["HTTP_PROXY"] = "http://127.0.0.1:7890" 
-    os.environ["HTTPS_PROXY"] = "http://127.0.0.1:7890"
     
     asyncio.run(run_okx_training_pipeline(limit=50))

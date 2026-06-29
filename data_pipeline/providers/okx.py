@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timedelta
 import ccxt.async_support as ccxt
 from loguru import logger
+import traceback
 
 from ..config import Config
 from .base import DataProvider
@@ -12,7 +13,6 @@ class OKXProvider(DataProvider):
         # 1. 动态加载交易所配置，开启官方直连防DNS污染
         exchange_config = {
             'enableRateLimit': True,
-            'hostname': 'aws.okx.com',
         }
         
         # 2. 注入代理配置（兼容环境变量）
@@ -65,43 +65,70 @@ class OKXProvider(DataProvider):
             return results
         except Exception as e:
             logger.error(f"[{self.exchange_id}] 获取热门交易对失败: {e}")
+            logger.exception(e)
+            traceback.print_exc()
             return []
 
     async def get_token_history(self, session, address, days=Config.HISTORY_DAYS, liquidity=None, fdv=None):
         """
         获取单个交易对的历史 K 线数据。
-        注：这里的 session 参数是为了兼容 DataProvider 基类接口，CCXT 自带请求池，直接忽略。
         """
         symbol = address 
+        # 获取当前时间戳及起始时间戳
+        now_ts = int(datetime.now().timestamp() * 1000)
         since = int((datetime.now() - timedelta(days=days)).timestamp() * 1000)
+        
+        # 将 timeframe (如 '1m', '1h') 转换为毫秒，用于分页步长
+        timeframe_ms = self.exchange.parse_timeframe(Config.TIMEFRAME) * 1000
         
         async with self.semaphore:
             for attempt in range(3):
                 try:
-                    # 拉取历史 OHLCV。OKX 单次最多 100 条，CCXT 底层会自动处理 pagination。
-                    # 如果 Config.HISTORY_DAYS 比较大（比如7天，1m周期即10080条），这里拉取时间会稍微长一点
-                    ohlcvs = await self.exchange.fetch_ohlcv(symbol, Config.TIMEFRAME, since=since)
+                    all_ohlcvs = []
+                    current_since = since
                     
-                    if not ohlcvs:
+                    # 循环拉取，直到当前请求的起始时间超过现在
+                    while current_since < now_ts:
+                        # 每次最多拉取 100 条 (OKX 限制)
+                        ohlcvs = await self.exchange.fetch_ohlcv(
+                            symbol, 
+                            Config.TIMEFRAME, 
+                            since=current_since, 
+                            limit=100
+                        )
+                        
+                        if not ohlcvs:
+                            break # 如果没数据了，提前结束
+                            
+                        all_ohlcvs.extend(ohlcvs)
+                        
+                        # 更新 next since 为最后一条数据的 timestamp + 1 个周期的毫秒数
+                        # 避免重复拉取最后一条 K 线
+                        current_since = ohlcvs[-1][0] + timeframe_ms
+                        
+                        # 请求过于频繁会被封控，建议即使没触发 RateLimit 也加个微小延迟
+                        await asyncio.sleep(0.1) 
+
+                    if not all_ohlcvs:
                         return []
                         
                     formatted = []
                     snapshot_liq = self._as_float(liquidity)
                     snapshot_fdv = self._as_float(fdv)
                     
-                    for candle in ohlcvs:
+                    for candle in all_ohlcvs:
                         timestamp, o, h, l, c, v = candle
                         formatted.append((
-                            datetime.fromtimestamp(timestamp / 1000.0), # time[cite: 1]
-                            symbol,                                     # address[cite: 1]
-                            float(o),                                   # open[cite: 1]
-                            float(h),                                   # high[cite: 1]
-                            float(l),                                   # low[cite: 1]
-                            float(c),                                   # close[cite: 1]
-                            float(v),                                   # volume[cite: 1]
-                            snapshot_liq,                               # liquidity (快照)[cite: 1]
-                            snapshot_fdv,                               # fdv (快照)[cite: 1]
-                            self.exchange_id                            # source[cite: 1]
+                            datetime.fromtimestamp(timestamp / 1000.0), 
+                            symbol,                                     
+                            float(o),                                   
+                            float(h),                                   
+                            float(l),                                   
+                            float(c),                                   
+                            float(v),                                   
+                            snapshot_liq,                               
+                            snapshot_fdv,                               
+                            self.exchange_id                            
                         ))
                     return formatted
                     

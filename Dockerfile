@@ -1,5 +1,5 @@
 # 使用官方轻量级 Python 镜像
-FROM python:3.13-slim-bookworm
+FROM python:3.13-slim
 
 # 设置工作目录
 WORKDIR /app
@@ -23,4 +23,4 @@ RUN pip install asyncpg pandas loguru ccxt aiohttp
 COPY . .
 
 # 保持容器运行，等待我们手动触发脚本
-CMD ["tail", "-f", "/dev/null"]
+CMD ["tail", "-f", "/dev/null"] 

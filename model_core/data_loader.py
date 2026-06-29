@@ -31,7 +31,7 @@ class CryptoDataLoader:
         def to_tensor(col):
             pivot = df.pivot(index='time', columns='address', values=col)
             pivot = pivot.reindex(columns=self.addresses)
-            pivot = pivot.fillna(method='ffill').fillna(0.0)
+            pivot = pivot.ffill().fillna(0.0)
             return torch.tensor(pivot.values.T, dtype=torch.float32, device=ModelConfig.DEVICE)
         self.raw_data_cache = {
             'open': to_tensor('open'),

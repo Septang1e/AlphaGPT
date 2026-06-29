@@ -66,14 +66,48 @@ class UniversalCEXDataLoader:
         tasks = [self._fetch_single_symbol(sym, timeframe, limit) for sym in self.symbols]
         results = await asyncio.gather(*tasks)
         
-        all_data = []
+        valid_series = []
+        actual_lengths = []
+        
+        # 2. 第一次清洗：过滤掉完全拿不到数据的币，记录有数据的币的实际长度
         for sym, res in zip(self.symbols, results):
-            # 如果请求失败或返回为空，用 0 填充该币种的矩阵阵列，防止整个张量形状崩溃
-            if res is None or not res:
-                all_data.append(np.zeros((limit, 5)))
+            if res is None or len(res) == 0:
+                logger.warning(f"[{self.exchange_id}] {sym} 完全没有历史数据，跳过该标的")
                 continue
-            # 截取 Open, High, Low, Close, Volume 这 5 列 (跳过时间戳)
-            all_data.append(np.array(res)[:, 1:6])
+            
+            # 提取 OHLCV 的 5 列 numpy 数组
+            np_res = np.array(res)[:, 1:6]
+            valid_series.append((sym, np_res))
+            actual_lengths.append(len(np_res))
+            
+        if not valid_series:
+            logger.critical("所有标的均未获取到数据，请检查网络或配置")
+            return None
+            
+        # 3. 解决数据不够的核心：动态对齐时间步
+        # 找出当前池子里最少的数据量（比如大部分币有 8640 条，新币只有 1000 条，则统一切齐到最新 1000 条）
+        max_available_len = min(actual_lengths)
+        logger.info(f"数据对齐：所有主流币统一截断至最新 {max_available_len} 个时间步（切齐新币数据线）")
+        
+        # 如果你不想因为一个新币连累所有币，也可以设置门槛：少于 2000 条的币直接剔除，剩下的大币再切齐
+        # max_available_len = max(min(actual_lengths), 2880) # 至少保证有30天数据
+        
+        final_data = []
+        final_symbols = []
+        
+        for sym, arr in valid_series:
+            # 统一从尾部切齐（保留最新的 K 线）
+            final_data.append(arr[-max_available_len:])
+            final_symbols.append(sym)
+            
+        # 更新当前的 symbols 列表，动态剔除掉了无法对齐的币
+        self.symbols = final_symbols
+        self.token_map = {sym: idx for idx, sym in enumerate(self.symbols)}
+        
+        # 4. 扔进 PyTorch 组装 3D 张量 [Tokens, Features, Timesteps]
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        raw_tensor = torch.tensor(np.stack(final_data), dtype=torch.float32, device=device)
+        raw_tensor = raw_tensor.permute(0, 2, 1)
             
         # 自动判断硬件环境加速 (如果有 GPU 则扔进 CUDA)
         device = "cuda" if torch.cuda.is_available() else "cpu"

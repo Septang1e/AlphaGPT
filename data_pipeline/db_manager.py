@@ -66,15 +66,27 @@ class DBManager:
     async def batch_insert_ohlcv(self, records):
         if not records: return
         async with self.pool.acquire() as conn:
-            try:
-                await conn.copy_records_to_table(
-                    'ohlcv',
-                    records=records,
-                    columns=['time', 'address', 'open', 'high', 'low', 'close', 
-                             'volume', 'liquidity', 'fdv', 'source'],
-                    timeout=60
-                )
-            except asyncpg.UniqueViolationError:
-                pass # 忽略重复
-            except Exception as e:
-                logger.error(f"Batch insert error: {e}")
+            # 开启显式事务保证原子性
+            async with conn.transaction():
+                try:
+                    await conn.execute("""
+                        CREATE TEMP TABLE tmp_ohlcv (LIKE ohlcv INCLUDING DEFAULTS) ON COMMIT DROP;
+                    """)
+                    
+                    # 2. 将数据极速 COPY 到临时表 (临时表没有冲突负担)
+                    await conn.copy_records_to_table(
+                        'tmp_ohlcv',
+                        records=records,
+                        columns=['time', 'address', 'open', 'high', 'low', 'close', 
+                                 'volume', 'liquidity', 'fdv', 'source'],
+                        timeout=60
+                    )
+                    
+                    # 3. 将临时表数据安全合并到主表，遇冲突则忽略
+                    await conn.execute("""
+                        INSERT INTO ohlcv
+                        SELECT * FROM tmp_ohlcv
+                        ON CONFLICT (time, address) DO NOTHING;
+                    """)
+                except Exception as e:
+                    logger.error(f"Batch insert error: {e}")
