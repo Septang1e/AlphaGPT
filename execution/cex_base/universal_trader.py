@@ -163,7 +163,8 @@ class UniversalCEXTrader:
                 pos = positions[0] 
                 total_holding = float(pos['contracts'])
                 sell_qty = total_holding * percentage
-                
+                params['posSide'] = 'long'
+
                 params['reduceOnly'] = True
                 if self.exchange_id == 'okx':
                     params['tdMode'] = td_mode
@@ -179,7 +180,7 @@ class UniversalCEXTrader:
             order = await self.exchange.create_order(
                 symbol=formatted_symbol,  
                 type='market',
-                side='sell', 
+                side='sell',
                 amount=sell_qty_formatted,
                 price=None,
                 params=params
